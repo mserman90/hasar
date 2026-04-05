@@ -1,0 +1,5 @@
+{
+  "name": "TurkSky-DestinE Probabilistic Impact Engine",
+  "description": "A high-tech, real-time probabilistic disaster impact simulation and monitoring dashboard.",
+  "requestFramePermissions": ["geolocation"]
+}
