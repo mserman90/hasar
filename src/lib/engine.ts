@@ -86,10 +86,7 @@ export function runProbabilisticEngine(
 
   const cascadeScenario = getCascadeScenario(type, normalizeRisk, pml);
 
-  return { normalizeRisk, mdr, pml, aal, infraCollapse, cascadeScenario };,
-      economicLoss: economicMetrics.totalLoss,
-      economicLossGDP: economicMetrics.lossRatioGDP
-}
+  return { normalizeRisk, mdr, pml, aal, infraCollapse, cascadeScenario, economicLoss: economicMetrics.totalLoss, economicLossGDP: economicMetrics.lossRatioGDP };
 
 function getCascadeScenario(type: DisasterType, risk: number, pml: number): string {
   const severity = risk > 0.7 ? 'KRİTİK' : risk > 0.4 ? 'YÜKSEK' : 'ORTA';
