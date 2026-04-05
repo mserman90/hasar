@@ -248,6 +248,58 @@ export default function App() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+        const handleDisasterClick = async (lat: number, lng: number, type: DisasterType, magnitude?: number) => {
+    // Set disaster type
+    setDisasterType(type);
+
+    // Adjust intensity based on magnitude for seismic events
+    if (type === 'seismic' && magnitude) {
+      const intensityValue = Math.min(100, Math.max(1, (magnitude - 2) * 20));
+      setParams(prev => ({ ...prev, intensity: intensityValue }));
+    }
+
+    // Fetch location data and set target
+    try {
+      const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&accept-language=tr`);
+      const geoData = await geoRes.json();
+      const name = geoData.address?.city || geoData.address?.town || geoData.address?.state || geoData.address?.country || `${lat.toFixed(2)}, ${lng.toFixed(2)}`;
+
+      updateSource('meteo', { status: 'active' });
+      updateSource('overpass', { status: 'active' });
+
+      const [weather, infra, alerts] = await Promise.all([
+        fetchWeatherData(lat, lng).catch(e => { logError('meteo', e.message); return null; }),
+        fetchInfraData(lat, lng).catch(e => { logError('overpass', e.message); return null; }),
+        fetchWeatherAlerts(lat, lng).catch(e => { logError('meteo', `Alerts: ${e.message}`); return []; })
+      ]);
+
+      if (weather) updateSource('meteo', { lastFetch: Date.now(), status: 'active' });
+      if (infra) updateSource('overpass', { lastFetch: Date.now(), status: 'active' });
+
+      const targetZone = { lat, lng, name, weather: weather || undefined, infra: infra || undefined, alerts: alerts.length > 0 ? alerts : undefined };
+      setTarget(targetZone);
+
+      // Auto-run simulation after a short delay
+      setIsSimulating(true);
+      setTimeout(() => {
+        const res = runProbabilisticEngine(type, params, targetZone);
+        setResults(res);
+        setIsSimulating(false);
+      }, 500);
+    } catch (e: any) {
+      const targetZone = { lat, lng, name: `${lat.toFixed(2)}, ${lng.toFixed(2)}` };
+      setTarget(targetZone);
+      
+      setIsSimulating(true);
+      setTimeout(() => {
+        const res = runProbabilisticEngine(type, params, targetZone);
+        setResults(res);
+        setIsSimulating(false);
+      }, 500);
+    }
+  };
+
+
   const handleRunSimulation = () => {
     if (!target) return;
     setIsSimulating(true);
@@ -683,6 +735,7 @@ export default function App() {
           mapStyle={mapStyle}
           updateSource={updateSource}
           logError={logError}
+                  onDisasterClick={handleDisasterClick}
         />
 
         {/* Map Legend */}
