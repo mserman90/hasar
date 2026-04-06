@@ -48,36 +48,6 @@ export function runProbabilisticEngine(
   // PML (Probable Maximum Loss) in Million $
   const pml = (E * 500) * mdr * (1 + (C / 100) * 0.5) * (1 - (R / 100) * 0.3);
 
-        // === ECONOMIC LOSS CALCULATION (HAZUS-MH & PDNA Standards) ===
-    
-    // Building Damage Loss (HAZUS methodology)
-    const replacementValue = buildingCount * 150000; // Average replacement value per building (USD)
-    const structuralLoss = replacementValue * mdr * 0.65; // 65% structural component
-    const nonStructuralLoss = replacementValue * mdr * 0.35; // 35% non-structural component
-    const directPhysicalLoss = structuralLoss + nonStructuralLoss;
-
-    // Indirect Economic Loss (PDNA methodology)
-    const businessInterruptionLoss = directPhysicalLoss * (I / 100) * 0.30; // Business interruption
-    const livelihoodLoss = directPhysicalLoss * (V / 100) * 0.15; // Loss of livelihoods
-    const indirectLoss = businessInterruptionLoss + livelihoodLoss;
-
-    // Total Economic Loss (Sendai Framework Target C)
-    const totalEconomicLoss = directPhysicalLoss + indirectLoss;
-    const economicLossGDP = (totalEconomicLoss / 1000000000) * 100; // % of GDP (assuming baseline)
-    
-    // Economic loss metrics for reporting (HAZUS standard outputs)
-    const economicMetrics = {
-      directLoss: directPhysicalLoss,
-      indirectLoss: indirectLoss,
-      totalLoss: totalEconomicLoss,
-      lossRatioGDP: economicLossGDP,
-      pml: pml,
-      aal: aal,
-      buildingReplacementCost: replacementValue,
-      structuralDamage: structuralLoss,
-      nonStructuralDamage: nonStructuralLoss
-    };
-
   // AAL (Average Annual Loss)
   const aal = pml * Math.max(0.01, 1 - (I / 100));
 
@@ -86,7 +56,8 @@ export function runProbabilisticEngine(
 
   const cascadeScenario = getCascadeScenario(type, normalizeRisk, pml);
 
-  return { normalizeRisk, mdr, pml, aal, infraCollapse, cascadeScenario, economicLoss: economicMetrics.totalLoss, economicLossGDP: economicMetrics.lossRatioGDP };
+  return { normalizeRisk, mdr, pml, aal, infraCollapse, cascadeScenario };
+}
 
 function getCascadeScenario(type: DisasterType, risk: number, pml: number): string {
   const severity = risk > 0.7 ? 'KRİTİK' : risk > 0.4 ? 'YÜKSEK' : 'ORTA';

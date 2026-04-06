@@ -26,11 +26,12 @@ export async function fetchWeatherData(lat: number, lng: number): Promise<Weathe
  */
 export async function fetchWeatherAlerts(lat: number, lng: number): Promise<WeatherAlert[]> {
   try {
-    const res = await fetch(`https://alerts.open-meteo.com/v1/alerts?latitude=${lat}&longitude=${lng}&timezone=auto`);
+    // Open-Meteo alerts are often included in the main forecast API with alerts=true
+    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m&alerts=true&timezone=auto`);
     if (!res.ok) return [];
     const data = await res.json();
     
-    // Open-Meteo alerts structure is an array of alert objects
+    // Open-Meteo alerts structure: data.alerts is an array of alert objects
     if (!data.alerts || !Array.isArray(data.alerts)) return [];
     
     return data.alerts.map((a: any) => ({

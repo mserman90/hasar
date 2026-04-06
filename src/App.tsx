@@ -38,6 +38,8 @@ import {
 } from './types';
 import { AppNotification } from './types';
 import { runProbabilisticEngine } from './lib/engine';
+import { fetchWeatherData, fetchInfraData, fetchWeatherAlerts } from './services/apiService';
+import { MapContainer } from 'react-leaflet'; // Not needed here but for context
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Bell, X } from 'lucide-react';
@@ -77,6 +79,12 @@ export default function App() {
   const [utcTime, setUtcTime] = useState(new Date().toISOString().substr(11, 8));
   const [isSimulating, setIsSimulating] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [visibleLayers, setVisibleLayers] = useState({
+    quakes: true,
+    eonet: true,
+    iss: true,
+    infra: true
+  });
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [seenEvents, setSeenEvents] = useState<Set<string>>(new Set());
   const [dataSources, setDataSources] = useState<Record<string, DataSourceStatus>>({
@@ -242,28 +250,29 @@ export default function App() {
     }
   }, [updateSource, logError]);
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+  const handleRunSimulation = useCallback((overrideType?: DisasterType, overrideParams?: Partial<SimulationParams>, overrideTarget?: TargetZone) => {
+    const currentTarget = overrideTarget || target;
+    if (!currentTarget) return;
+    
+    setIsSimulating(true);
+    const currentType = overrideType || disasterType;
+    const currentParams = overrideParams ? { ...params, ...overrideParams } : params;
 
-        const handleDisasterClick = async (lat: number, lng: number, type: DisasterType, magnitude?: number) => {
-    // Set disaster type
-    setDisasterType(type);
+    setTimeout(() => {
+      const res = runProbabilisticEngine(currentType, currentParams, currentTarget);
+      setResults(res);
+      setIsSimulating(false);
+    }, 1000);
+  }, [target, disasterType, params]);
 
-    // Adjust intensity based on magnitude for seismic events
-    if (type === 'seismic' && magnitude) {
-      const intensityValue = Math.min(100, Math.max(1, (magnitude - 2) * 20));
-      setParams(prev => ({ ...prev, intensity: intensityValue }));
-    }
-
-    // Fetch location data and set target
+  const handleSetTarget = useCallback(async (lat: number, lng: number, autoSimType?: DisasterType, autoSimIntensity?: number) => {
     try {
+      // 1. Reverse Geocode
       const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&accept-language=tr`);
       const geoData = await geoRes.json();
       const name = geoData.address?.city || geoData.address?.town || geoData.address?.state || geoData.address?.country || `${lat.toFixed(2)}, ${lng.toFixed(2)}`;
-
+      
+      // 2. Fetch Weather, Infra, and Alerts in parallel
       updateSource('meteo', { status: 'active' });
       updateSource('overpass', { status: 'active' });
 
@@ -276,39 +285,74 @@ export default function App() {
       if (weather) updateSource('meteo', { lastFetch: Date.now(), status: 'active' });
       if (infra) updateSource('overpass', { lastFetch: Date.now(), status: 'active' });
 
-      const targetZone = { lat, lng, name, weather: weather || undefined, infra: infra || undefined, alerts: alerts.length > 0 ? alerts : undefined };
-      setTarget(targetZone);
+      const newTarget: TargetZone = { 
+        lat, 
+        lng, 
+        name,
+        weather: weather || undefined,
+        infra: infra || undefined,
+        alerts: alerts.length > 0 ? alerts : undefined
+      };
 
-      // Auto-run simulation after a short delay
-      setIsSimulating(true);
-      setTimeout(() => {
-        const res = runProbabilisticEngine(type, params, targetZone);
-        setResults(res);
-        setIsSimulating(false);
-      }, 500);
+      setTarget(newTarget);
+
+      // 3. Auto-trigger simulation if requested
+      if (autoSimType && autoSimIntensity !== undefined) {
+        handleRunSimulation(autoSimType, { intensity: autoSimIntensity }, newTarget);
+      }
     } catch (e: any) {
-      const targetZone = { lat, lng, name: `${lat.toFixed(2)}, ${lng.toFixed(2)}` };
-      setTarget(targetZone);
-      
-      setIsSimulating(true);
-      setTimeout(() => {
-        const res = runProbabilisticEngine(type, params, targetZone);
-        setResults(res);
-        setIsSimulating(false);
-      }, 500);
+      setTarget({ lat, lng, name: `${lat.toFixed(2)}, ${lng.toFixed(2)}` });
     }
-  };
+  }, [updateSource, logError, handleRunSimulation]);
 
+  const handleLocate = useCallback(() => {
+    if (!navigator.geolocation) {
+      addNotification({
+        type: 'warning',
+        title: 'KONUM DESTEĞİ YOK',
+        message: 'Tarayıcınız konum özelliğini desteklemiyor.'
+      });
+      return;
+    }
 
-  const handleRunSimulation = () => {
-    if (!target) return;
-    setIsSimulating(true);
-    setTimeout(() => {
-      const res = runProbabilisticEngine(disasterType, params, target);
-      setResults(res);
-      setIsSimulating(false);
-    }, 1000);
-  };
+    addNotification({
+      type: 'info',
+      title: 'KONUM ARANIYOR',
+      message: 'Mevcut konumunuz algılanıyor...'
+    });
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        handleSetTarget(pos.coords.latitude, pos.coords.longitude);
+        addNotification({
+          type: 'info',
+          title: 'KONUM BULUNDU',
+          message: 'Mevcut konumunuz hedef bölge olarak ayarlandı.'
+        });
+      },
+      (err) => {
+        addNotification({
+          type: 'warning',
+          title: 'KONUM HATASI',
+          message: 'Konumunuza erişilemedi. Lütfen izinleri kontrol edin.'
+        });
+      }
+    );
+  }, [handleSetTarget, addNotification]);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    
+    // Auto-locate on startup (optional/prompted by browser)
+    const hasAsked = localStorage.getItem('ais_locate_asked');
+    if (!hasAsked) {
+      handleLocate();
+      localStorage.setItem('ais_locate_asked', 'true');
+    }
+
+    return () => clearInterval(interval);
+  }, [fetchData, handleLocate]);
 
   return (
     <div className="flex h-screen bg-[#060a14] font-mono text-[#c8d6e5] overflow-hidden">
@@ -388,8 +432,15 @@ export default function App() {
             </span>
           </div>
           <div className="flex items-center gap-2 px-2 py-1 rounded bg-cyan-500/5 border border-cyan-500/10">
-            <Satellite className="w-3 h-3 text-purple-400" />
-            <span className="text-purple-300">ISS: {iss ? `${iss.lat.toFixed(1)}°, ${iss.lng.toFixed(1)}°` : '--'}</span>
+            <button 
+              onClick={() => fetchData('iss')}
+              disabled={isRefreshing}
+              className="hover:text-purple-300 transition disabled:opacity-50 flex items-center gap-2"
+              title="ISS Konumunu Yenile"
+            >
+              <Satellite className={cn("w-3 h-3 text-purple-400", isRefreshing && dataSources.iss.status === 'active' && "animate-spin")} />
+              <span className="text-purple-300">ISS: {iss ? `${iss.lat.toFixed(1)}°, ${iss.lng.toFixed(1)}°` : '--'}</span>
+            </button>
           </div>
           <div className="flex items-center gap-2 px-2 py-1 rounded bg-amber-500/5 border border-amber-500/10">
             <Clock className="w-3 h-3 text-amber-500" />
@@ -438,8 +489,16 @@ export default function App() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                 {/* Target Zone */}
                 <div className="glass rounded-lg p-3 border-glow">
-                  <h3 className="font-orbitron text-[10px] font-bold text-cyan-400 tracking-wider mb-2 flex items-center gap-2">
-                    <Crosshair className="w-3 h-3" /> HEDEF BÖLGE
+                  <h3 className="font-orbitron text-[10px] font-bold text-cyan-400 tracking-wider mb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Crosshair className="w-3 h-3" /> HEDEF BÖLGE
+                    </div>
+                    <button 
+                      onClick={handleLocate}
+                      className="text-[8px] bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 transition-all"
+                    >
+                      <Globe className="w-2 h-2" /> KONUMUMU BUL
+                    </button>
                   </h3>
                   <div className="grid grid-cols-2 gap-2 text-[10px]">
                     <div className="bg-black/30 rounded p-2">
@@ -451,6 +510,31 @@ export default function App() {
                       <div className="text-cyan-300 font-bold mt-0.5">
                         {target ? `${target.lat.toFixed(4)}, ${target.lng.toFixed(4)}` : '--.--, --.--'}
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Locations */}
+                  <div className="mt-3">
+                    <div className="text-[9px] text-gray-500 mb-1.5 flex items-center gap-1">
+                      <Globe className="w-2.5 h-2.5" /> HIZLI KONUM
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { name: 'İstanbul', lat: 41.0082, lng: 28.9784 },
+                        { name: 'Ankara', lat: 39.9334, lng: 32.8597 },
+                        { name: 'İzmir', lat: 38.4237, lng: 27.1428 },
+                        { name: 'Antalya', lat: 36.8969, lng: 30.7133 },
+                        { name: 'Gaziantep', lat: 37.0662, lng: 37.3833 },
+                        { name: 'Hatay', lat: 36.4018, lng: 36.3498 }
+                      ].map(city => (
+                        <button
+                          key={city.name}
+                          onClick={() => handleSetTarget(city.lat, city.lng)}
+                          className="text-[9px] px-2 py-1 rounded bg-cyan-500/5 hover:bg-cyan-500/20 border border-cyan-500/10 hover:border-cyan-500/30 transition-all text-gray-400 hover:text-cyan-300"
+                        >
+                          {city.name}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
@@ -625,8 +709,18 @@ export default function App() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                 {/* Quakes Feed */}
                 <div className="glass rounded-lg p-3 border-glow">
-                  <h3 className="font-orbitron text-[10px] font-bold text-cyan-400 tracking-wider mb-2 flex items-center gap-2">
-                    <Activity className="w-3 h-3 text-red-400" /> CANLI SİSMİK (USGS)
+                  <h3 className="font-orbitron text-[10px] font-bold text-cyan-400 tracking-wider mb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Activity className="w-3 h-3 text-red-400" /> CANLI SİSMİK (USGS)
+                    </div>
+                    <button 
+                      onClick={() => fetchData('usgs')}
+                      disabled={isRefreshing}
+                      className="text-[8px] text-red-400 hover:text-red-300 transition disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <Activity className={cn("w-2 h-2", isRefreshing && dataSources.usgs.status === 'active' && "animate-spin")} />
+                      YENİLE
+                    </button>
                   </h3>
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {quakes.map(q => (
@@ -643,8 +737,18 @@ export default function App() {
 
                 {/* EONET Feed */}
                 <div className="glass rounded-lg p-3 border-glow">
-                  <h3 className="font-orbitron text-[10px] font-bold text-cyan-400 tracking-wider mb-2 flex items-center gap-2">
-                    <Rss className="w-3 h-3 text-amber-400" /> NASA EONET OLAYLARI
+                  <h3 className="font-orbitron text-[10px] font-bold text-cyan-400 tracking-wider mb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Rss className="w-3 h-3 text-amber-400" /> NASA EONET OLAYLARI
+                    </div>
+                    <button 
+                      onClick={() => fetchData('eonet')}
+                      disabled={isRefreshing}
+                      className="text-[8px] text-amber-400 hover:text-amber-300 transition disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <Activity className={cn("w-2 h-2", isRefreshing && dataSources.eonet.status === 'active' && "animate-spin")} />
+                      YENİLE
+                    </button>
                   </h3>
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {eonet.map(e => (
@@ -735,8 +839,56 @@ export default function App() {
           mapStyle={mapStyle}
           updateSource={updateSource}
           logError={logError}
-                  onDisasterClick={handleDisasterClick}
+          visibleLayers={visibleLayers}
+          onRunSimulation={handleRunSimulation}
+          onMapClick={handleSetTarget}
         />
+
+        {/* Layer Control */}
+        <div className="absolute top-20 right-6 z-[700] flex flex-col gap-2">
+          <div className="glass rounded-lg p-2 border-glow flex flex-col gap-2">
+            <button 
+              onClick={() => setVisibleLayers(prev => ({ ...prev, quakes: !prev.quakes }))}
+              className={cn(
+                "p-2 rounded transition-all",
+                visibleLayers.quakes ? "bg-red-500/20 text-red-400 border border-red-500/40" : "bg-white/5 text-gray-500 border border-white/10"
+              )}
+              title="Sismik Katman"
+            >
+              <Activity className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={() => setVisibleLayers(prev => ({ ...prev, eonet: !prev.eonet }))}
+              className={cn(
+                "p-2 rounded transition-all",
+                visibleLayers.eonet ? "bg-amber-500/20 text-amber-400 border border-amber-500/40" : "bg-white/5 text-gray-500 border border-white/10"
+              )}
+              title="EONET Katman"
+            >
+              <Rss className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={() => setVisibleLayers(prev => ({ ...prev, iss: !prev.iss }))}
+              className={cn(
+                "p-2 rounded transition-all",
+                visibleLayers.iss ? "bg-purple-500/20 text-purple-400 border border-purple-500/40" : "bg-white/5 text-gray-500 border border-white/10"
+              )}
+              title="ISS Katman"
+            >
+              <Satellite className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={() => setVisibleLayers(prev => ({ ...prev, infra: !prev.infra }))}
+              className={cn(
+                "p-2 rounded transition-all",
+                visibleLayers.infra ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40" : "bg-white/5 text-gray-500 border border-white/10"
+              )}
+              title="Altyapı Katman"
+            >
+              <Database className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
 
         {/* Map Legend */}
         <div className="absolute bottom-6 right-6 z-[700] glass rounded-lg p-3 border-glow text-[9px] space-y-2 min-w-[160px]">
