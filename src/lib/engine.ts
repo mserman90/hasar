@@ -17,7 +17,9 @@ export function runProbabilisticEngine(
   target?: TargetZone | null
 ): SimulationResults {
   let { intensity: I, exposure: E, vulnerability: V, resilience: R, cascade: C } = params;
-  const w = DISASTER_WEIGHTS[type];
+  
+  // Safety check for disaster type
+  const w = DISASTER_WEIGHTS[type] || DISASTER_WEIGHTS.seismic;
 
   // REAL-WORLD CONTEXT ADJUSTMENTS
   if (target) {

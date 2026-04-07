@@ -4,48 +4,64 @@ import { WeatherData, InfraData, WeatherAlert } from '../types';
  * Open-Meteo API: Real-time weather data
  */
 export async function fetchWeatherData(lat: number, lng: number): Promise<WeatherData | null> {
-  try {
-    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&timezone=auto`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return {
-      temp: data.current.temperature_2m,
-      windSpeed: data.current.wind_speed_10m,
-      precipitation: data.current.precipitation,
-      humidity: data.current.relative_humidity_2m,
-      conditionCode: 0 // Simplified
-    };
-  } catch (e) {
-    console.error('Open-Meteo fetch error:', e);
-    return null;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&timezone=auto`;
+  const proxies = [
+    url,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`
+  ];
+
+  for (const targetUrl of proxies) {
+    try {
+      const res = await fetch(targetUrl);
+      if (!res.ok) continue;
+      const data = await res.json();
+      return {
+        temp: data.current.temperature_2m,
+        windSpeed: data.current.wind_speed_10m,
+        precipitation: data.current.precipitation,
+        humidity: data.current.relative_humidity_2m,
+        conditionCode: 0 // Simplified
+      };
+    } catch (e) {
+      console.warn(`Open-Meteo fetch attempt failed for ${targetUrl}:`, e);
+    }
   }
+  return null;
 }
 
 /**
  * Open-Meteo Alerts API: Severe weather alerts
  */
 export async function fetchWeatherAlerts(lat: number, lng: number): Promise<WeatherAlert[]> {
-  try {
-    // Open-Meteo alerts are often included in the main forecast API with alerts=true
-    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m&alerts=true&timezone=auto`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    
-    // Open-Meteo alerts structure: data.alerts is an array of alert objects
-    if (!data.alerts || !Array.isArray(data.alerts)) return [];
-    
-    return data.alerts.map((a: any) => ({
-      event: a.event || 'Weather Alert',
-      headline: a.headline || a.event,
-      description: a.description || '',
-      severity: a.severity?.toLowerCase() || 'moderate',
-      onset: a.onset || '',
-      expires: a.expires || ''
-    }));
-  } catch (e) {
-    console.error('Open-Meteo Alerts fetch error:', e);
-    return [];
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m&alerts=true&timezone=auto`;
+  const proxies = [
+    url,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`
+  ];
+
+  for (const targetUrl of proxies) {
+    try {
+      const res = await fetch(targetUrl);
+      if (!res.ok) continue;
+      const data = await res.json();
+      
+      if (!data.alerts || !Array.isArray(data.alerts)) return [];
+      
+      return data.alerts.map((a: any) => ({
+        event: a.event || 'Weather Alert',
+        headline: a.headline || a.event,
+        description: a.description || '',
+        severity: a.severity?.toLowerCase() || 'moderate',
+        onset: a.onset || '',
+        expires: a.expires || ''
+      }));
+    } catch (e) {
+      console.warn(`Open-Meteo Alerts fetch attempt failed for ${targetUrl}:`, e);
+    }
   }
+  return [];
 }
 
 /**

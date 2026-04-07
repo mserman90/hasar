@@ -156,7 +156,9 @@ export default function Map({ target, setTarget, quakes, eonet, iss, mapStyle, u
             eventHandlers={{
               click: (ev) => {
                 L.DomEvent.stopPropagation(ev);
-                onMapClick(q.lat, q.lng, 'seismic', Math.min(100, Math.round(q.mag * 12)));
+                setTimeout(() => {
+                  onMapClick(q.lat, q.lng, 'seismic', Math.min(100, Math.round(q.mag * 12)));
+                }, 0);
               }
             }}
           >
@@ -200,7 +202,9 @@ export default function Map({ target, setTarget, quakes, eonet, iss, mapStyle, u
             eventHandlers={{
               click: (ev) => {
                 L.DomEvent.stopPropagation(ev);
-                onMapClick(e.lat, e.lng, getDisasterType(e.category), 75);
+                setTimeout(() => {
+                  onMapClick(e.lat, e.lng, getDisasterType(e.category), 75);
+                }, 0);
               }
             }}
           >
